@@ -4,27 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>我们的朋友圈</title>
-    <!-- ✅ Firebase 初始化 -->
-<script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getDatabase } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
-
-  const firebaseConfig = {
-    apiKey: "AIzaSyBj5CeO7ZZvrbwAH95Zl9JsZalJ7GK7jS8",
-    authDomain: "weight-tracker-496d0.firebaseapp.com",
-    databaseURL: "https://weight-tracker-496d0-default-rtdb.asia-southeast1.firebasedatabase.app",
-    projectId: "weight-tracker-496d0",
-    storageBucket: "weight-tracker-496d0.appspot.com",
-    messagingSenderId: "854520907789",
-    appId: "1:854520907789:web:1421612c7a65f707856d44"
-  };
-
-  const app = initializeApp(firebaseConfig);
-  const database = getDatabase(app);
-
-  // 暴露给全局用
-  window._firebase = { app, database };
-</script>
     <style>
         * {
             margin: 0;
@@ -341,7 +320,7 @@
 <body>
     <div class="container">
         <!-- Firebase配置提示 -->
-        <div id="setupInstructions" class="setup-instructions">
+        <div id="setupInstructions" class="setup-instructions" style="display: none;">
             <h3>🔧 Firebase 配置说明</h3>
             <p>请按照以下步骤配置Firebase：</p>
             <p>1. 访问 <a href="https://console.firebase.google.com" target="_blank">Firebase控制台</a></p>
@@ -397,22 +376,21 @@
 
     <!-- Firebase SDK -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.23.0/firebase-app-compat.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.23.0/firebase-firestore-compat.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.23.0/firebase-auth-compat.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.23.0/firebase-database-compat.min.js"></script>
 
     <script>
-        // Firebase 配置 - 请替换为你自己的配置
+        // 🔥 Firebase 配置 - 使用你已经部署的配置
         const firebaseConfig = {
-            // 请在这里填入你的Firebase配置
-            apiKey: "your-api-key",
-            authDomain: "your-project.firebaseapp.com",
-            projectId: "your-project-id",
-            storageBucket: "your-project.appspot.com",
-            messagingSenderId: "123456789",
-            appId: "your-app-id"
+            apiKey: "AIzaSyBj5CeO7ZZvrbwAH95Zl9JsZalJ7GK7jS8",
+            authDomain: "weight-tracker-496d0.firebaseapp.com",
+            databaseURL: "https://weight-tracker-496d0-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "weight-tracker-496d0",
+            storageBucket: "weight-tracker-496d0.appspot.com",
+            messagingSenderId: "854520907789",
+            appId: "1:854520907789:web:1421612c7a65f707856d44"
         };
 
-        // 用户数据 - 你们的用户名和密码
+        // 👥 用户数据 - 你们的用户名和密码
         const users = {
             'sandra': 'sandra123',     // 改为你的用户名和密码
             'friend': 'friend456'      // 改为你朋友的用户名和密码
@@ -420,42 +398,38 @@
 
         let currentUser = null;
         let db = null;
-        let postsCollection = null;
-
-        // 检查Firebase配置
-        function checkFirebaseConfig() {
-            if (firebaseConfig.apiKey === "your-api-key") {
-                return false;
-            }
-            return true;
-        }
+        let postsRef = null;
 
         // 初始化Firebase
         function initFirebase() {
-            if (!checkFirebaseConfig()) {
-                console.log("Firebase配置未完成");
-                return false;
-            }
-
             try {
+                // 初始化Firebase应用
                 firebase.initializeApp(firebaseConfig);
-                db = firebase.firestore();
-                postsCollection = db.collection('posts');
+                db = firebase.database();
+                postsRef = db.ref('posts');
                 
-                // 隐藏配置提示
-                document.getElementById('setupInstructions').style.display = 'none';
+                console.log("Firebase初始化成功");
                 
                 // 监听数据变化
-                postsCollection.orderBy('timestamp', 'desc').onSnapshot((snapshot) => {
-                    renderPosts(snapshot.docs.map(doc => ({
-                        id: doc.id,
-                        ...doc.data()
-                    })));
+                postsRef.orderByChild('timestamp').on('value', (snapshot) => {
+                    const posts = [];
+                    snapshot.forEach((childSnapshot) => {
+                        posts.unshift({
+                            id: childSnapshot.key,
+                            ...childSnapshot.val()
+                        });
+                    });
+                    renderPosts(posts);
+                }, (error) => {
+                    console.error("监听数据失败:", error);
+                    document.getElementById('postsContainer').innerHTML = 
+                        '<div class="error-message">连接数据库失败，请检查网络连接</div>';
                 });
 
                 return true;
             } catch (error) {
                 console.error("Firebase初始化失败:", error);
+                document.getElementById('setupInstructions').style.display = 'block';
                 return false;
             }
         }
@@ -483,21 +457,26 @@
                 return;
             }
 
-            if (!checkFirebaseConfig()) {
-                errorElement.textContent = '请先配置Firebase';
+            if (!db) {
+                errorElement.textContent = '数据库连接失败，请刷新页面重试';
                 return;
             }
 
             loginBtn.disabled = true;
             loginBtn.textContent = '登录中...';
 
-            if (users[username] && users[username] === password) {
-                currentUser = username;
-                localStorage.setItem('currentUser', username);
-                showMainScreen();
-                errorElement.textContent = '';
-            } else {
-                errorElement.textContent = '用户名或密码错误';
+            try {
+                if (users[username] && users[username] === password) {
+                    currentUser = username;
+                    localStorage.setItem('currentUser', username);
+                    showMainScreen();
+                    errorElement.textContent = '';
+                } else {
+                    errorElement.textContent = '用户名或密码错误';
+                }
+            } catch (error) {
+                console.error("登录失败:", error);
+                errorElement.textContent = '登录失败，请重试';
             }
 
             loginBtn.disabled = false;
@@ -537,7 +516,7 @@
             }
 
             if (!db) {
-                alert('数据库未连接，请检查Firebase配置');
+                alert('数据库未连接，请刷新页面重试');
                 return;
             }
 
@@ -548,16 +527,17 @@
                 const post = {
                     username: currentUser,
                     content: content,
-                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                    timestamp: firebase.database.ServerValue.TIMESTAMP,
                     likes: 0,
                     likedBy: []
                 };
 
-                await postsCollection.add(post);
+                await postsRef.push(post);
                 document.getElementById('postContent').value = '';
+                console.log("动态发布成功");
             } catch (error) {
                 console.error("发布失败:", error);
-                alert('发布失败，请重试');
+                alert('发布失败: ' + error.message);
             }
 
             postBtn.disabled = false;
@@ -569,11 +549,11 @@
             if (!db) return;
 
             try {
-                const postRef = postsCollection.doc(postId);
-                const postDoc = await postRef.get();
+                const postRef = postsRef.child(postId);
+                const snapshot = await postRef.once('value');
                 
-                if (postDoc.exists) {
-                    const postData = postDoc.data();
+                if (snapshot.exists()) {
+                    const postData = snapshot.val();
                     let likedBy = postData.likedBy || [];
                     let likes = postData.likes || 0;
 
@@ -642,7 +622,7 @@
             if (!timestamp) return '刚刚';
             
             const now = new Date();
-            const postTime = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+            const postTime = new Date(timestamp);
             const diffInSeconds = Math.floor((now - postTime) / 1000);
 
             if (diffInSeconds < 60) return '刚刚';
