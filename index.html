@@ -1086,62 +1086,110 @@
                 if (savedUser && users.hasOwnProperty(savedUser)) {
                     currentUser = savedUser;
                     checkOnlineStatus();
+                } else {
+                    // 清理可能存在的无效状态
+                    localStorage.removeItem('currentUser');
+                    showLoginScreen();
                 }
             }
         };
 
+        // 页面关闭时清理
+        window.addEventListener('beforeunload', function() {
+            if (onlineRef && currentUser && sessionId) {
+                // 同步清除在线状态
+                onlineRef.child(currentUser).remove();
+            }
+        });
+
         // 检查在线状态
         async function checkOnlineStatus() {
-            if (!onlineRef) return;
+            if (!onlineRef) {
+                showMainScreen();
+                loadUserProfile();
+                return;
+            }
             
             try {
+                // 先生成本次会话ID
+                sessionId = Date.now().toString() + '_' + Math.random().toString(36).substr(2, 9);
+                
                 const snapshot = await onlineRef.child(currentUser).once('value');
                 if (snapshot.exists()) {
                     const onlineData = snapshot.val();
-                    if (onlineData.sessionId !== sessionId) {
-                        // 账号在其他地方登录
+                    // 如果存在其他会话且时间在5分钟内，说明有其他地方在登录
+                    const timeDiff = Date.now() - (onlineData.timestamp || 0);
+                    if (timeDiff < 5 * 60 * 1000) { // 5分钟内
                         showOnlineConflict();
                         return;
                     }
                 }
                 
-                // 创建新会话
-                sessionId = Date.now().toString();
+                // 设置当前会话
                 await onlineRef.child(currentUser).set({
                     sessionId: sessionId,
                     timestamp: firebase.database.ServerValue.TIMESTAMP
                 });
                 
-                // 监听会话变化
-                onlineRef.child(currentUser).on('value', (snapshot) => {
-                    if (snapshot.exists()) {
-                        const data = snapshot.val();
-                        if (data.sessionId !== sessionId) {
-                            showOnlineConflict();
-                        }
+                // 监听会话变化（延迟设置，避免监听到自己的更新）
+                setTimeout(() => {
+                    if (currentUser && sessionId) {
+                        onlineRef.child(currentUser).on('value', (snapshot) => {
+                            if (snapshot.exists()) {
+                                const data = snapshot.val();
+                                // 只有当sessionId不同且不是自己设置的时候才踢出
+                                if (data.sessionId !== sessionId && currentUser) {
+                                    showOnlineConflict();
+                                }
+                            }
+                        });
                     }
-                });
+                }, 1000);
 
                 showMainScreen();
                 loadUserProfile();
             } catch (error) {
                 console.error("检查在线状态失败:", error);
                 showMainScreen();
+                loadUserProfile();
             }
         }
 
         // 显示在线冲突
         function showOnlineConflict() {
+            // 停止监听，避免重复触发
+            if (onlineRef && currentUser) {
+                onlineRef.child(currentUser).off('value');
+            }
             document.getElementById('onlineConflict').style.display = 'flex';
         }
 
         // 处理在线冲突
         function handleConflict() {
+            // 清理当前会话状态
+            if (onlineRef && currentUser) {
+                try {
+                    onlineRef.child(currentUser).remove().catch(() => {});
+                } catch (error) {
+                    console.error("清理会话失败:", error);
+                }
+            }
+            
+            // 重置所有状态
             currentUser = null;
             sessionId = null;
+            uploadedImages = [];
+            currentUserProfile = {};
             localStorage.removeItem('currentUser');
+            
+            // 隐藏冲突提示，显示登录界面
             document.getElementById('onlineConflict').style.display = 'none';
             showLoginScreen();
+            
+            // 清空登录表单
+            document.getElementById('username').value = '';
+            document.getElementById('password').value = '';
+            document.getElementById('loginError').textContent = '';
         }
 
         // 登录功能
@@ -1188,19 +1236,26 @@
         async function logout() {
             if (onlineRef && currentUser) {
                 try {
+                    // 停止监听
+                    onlineRef.child(currentUser).off('value');
+                    // 清除在线状态
                     await onlineRef.child(currentUser).remove();
                 } catch (error) {
                     console.error("清除在线状态失败:", error);
                 }
             }
             
+            // 重置所有状态
             currentUser = null;
             sessionId = null;
             uploadedImages = [];
+            currentUserProfile = {};
             localStorage.removeItem('currentUser');
+            
             showLoginScreen();
             document.getElementById('username').value = '';
             document.getElementById('password').value = '';
+            document.getElementById('loginError').textContent = '';
         }
 
         // 显示主界面
